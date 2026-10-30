@@ -1,0 +1,1462 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ClimaFlux - Protótipo de Gestão de Climatização</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Alpine JS para interatividade dinâmica -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#f0f9ff',
+              100: '#e0f2fe',
+              500: '#0284c7',
+              600: '#0369a1',
+              700: '#0369a1',
+              900: '#0c4a6e',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    [x-cloak] { display: none !important; }
+    /* Estilização de scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 font-sans antialiased min-h-screen" x-data="appData()" x-init="initApp()">
+
+  <!-- Toast Notification Container -->
+  <div class="fixed top-5 right-5 z-50 flex flex-col gap-2 max-w-sm">
+    <template x-for="toast in toasts" :key="toast.id">
+      <div 
+        x-transition:enter="transition ease-out duration-300 transform"
+        x-transition:enter-start="opacity-0 translate-y-2"
+        x-transition:enter-end="opacity-100 translate-y-0"
+        x-transition:leave="transition ease-in duration-200 transform"
+        x-transition:leave-start="opacity-100 translate-y-0"
+        x-transition:leave-end="opacity-0 translate-y-2"
+        :class="{
+          'bg-emerald-600 text-white': toast.type === 'success',
+          'bg-sky-600 text-white': toast.type === 'info',
+          'bg-amber-600 text-white': toast.type === 'warning',
+          'bg-rose-600 text-white': toast.type === 'error'
+        }"
+        class="p-4 rounded-xl shadow-xl flex items-center justify-between gap-3 text-sm font-medium border border-white/10"
+      >
+        <div class="flex items-center gap-2">
+          <i :data-lucide="toast.icon || 'info'" class="w-5 h-5"></i>
+          <span x-text="toast.message"></span>
+        </div>
+        <button @click="removeToast(toast.id)" class="text-white/80 hover:text-white">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+    </template>
+  </div>
+
+  <div class="flex h-screen overflow-hidden bg-slate-950">
+
+    <!-- Sidebar Navegação -->
+    <aside class="w-64 bg-slate-900 border-r border-slate-800 flex flex-col justify-between shrink-0 hidden md:flex">
+      <div>
+        <!-- Logo -->
+        <div class="p-5 border-b border-slate-800 flex items-center gap-3">
+          <div class="p-2 bg-gradient-to-tr from-sky-500 to-cyan-400 rounded-xl text-slate-950 font-bold shadow-lg shadow-sky-500/20">
+            <i data-lucide="snowflake" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h1 class="font-bold text-lg text-white tracking-wide">ClimaFlux</h1>
+            <p class="text-xs text-sky-400 font-medium">Sistemas & Climatização</p>
+          </div>
+        </div>
+
+        <!-- Perfil Seletor -->
+        <div class="px-4 py-3 bg-slate-800/50 m-3 rounded-xl border border-slate-700/50">
+          <label class="text-[10px] font-semibold uppercase tracking-wider text-slate-400 block mb-1">Visualização Atual</label>
+          <select x-model="currentRole" @change="onRoleChange()" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-sky-500 font-medium">
+            <option value="client">Empresa Cliente (Hospital S. Clara)</option>
+            <option value="admin">Atendente / Gestor Interno</option>
+          </select>
+        </div>
+
+        <!-- Menu de Navegação -->
+        <nav class="p-3 space-y-1">
+          <button 
+            @click="activeTab = 'portal'" 
+            :class="activeTab === 'portal' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'"
+            class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all text-left"
+          >
+            <i data-lucide="building-2" class="w-4 h-4"></i>
+            <span>1. Portal do Cliente</span>
+            <span class="ml-auto bg-sky-500/20 text-sky-300 text-[10px] px-1.5 py-0.5 rounded-md">Multi-tenant</span>
+          </button>
+
+          <button 
+            @click="activeTab = 'budget'" 
+            :class="activeTab === 'budget' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'"
+            class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all text-left relative"
+          >
+            <i data-lucide="receipt-text" class="w-4 h-4"></i>
+            <span>2. Fluxo Orçamento</span>
+            <template x-if="pendingBudgetsCount > 0">
+              <span class="ml-auto bg-amber-500 text-slate-950 font-bold text-[10px] px-1.5 py-0.5 rounded-full" x-text="pendingBudgetsCount"></span>
+            </template>
+          </button>
+
+          <button 
+            @click="activeTab = 'schedule'" 
+            :class="activeTab === 'schedule' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'"
+            class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all text-left"
+          >
+            <i data-lucide="calendar-check-2" class="w-4 h-4"></i>
+            <span>3. Fila de Agendamento</span>
+            <template x-if="approvedCount > 0">
+              <span class="ml-auto bg-emerald-500 text-slate-950 font-bold text-[10px] px-1.5 py-0.5 rounded-full" x-text="approvedCount"></span>
+            </template>
+          </button>
+
+          <button 
+            @click="activeTab = 'ia_whatsapp'" 
+            :class="activeTab === 'ia_whatsapp' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'"
+            class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all text-left"
+          >
+            <i data-lucide="bot" class="w-4 h-4"></i>
+            <span>4. IA + WhatsApp</span>
+            <span class="ml-auto bg-emerald-500/20 text-emerald-400 text-[10px] px-1.5 py-0.5 rounded-md font-mono">WAHA/n8n</span>
+          </button>
+
+          <button 
+            @click="activeTab = 'dashboard'" 
+            :class="activeTab === 'dashboard' ? 'bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'"
+            class="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all text-left"
+          >
+            <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+            <span>5. Painel Interno UX</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Footer Info -->
+      <div class="p-4 border-t border-slate-800 text-xs text-slate-500 flex items-center justify-between">
+        <span>VPS Node/Next v14.2</span>
+        <span class="inline-flex items-center gap-1 text-emerald-400">
+          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Online
+        </span>
+      </div>
+    </aside>
+
+    <!-- Mobile Header & Nav Bar -->
+    <div class="md:hidden fixed top-0 left-0 right-0 z-40 bg-slate-900 border-b border-slate-800 p-3 flex items-center justify-between">
+      <div class="flex items-center gap-2">
+        <div class="p-1.5 bg-sky-500 rounded-lg text-slate-950 font-bold">
+          <i data-lucide="snowflake" class="w-5 h-5"></i>
+        </div>
+        <span class="font-bold text-white text-sm">ClimaFlux</span>
+      </div>
+      <div class="flex items-center gap-2">
+        <select x-model="activeTab" class="bg-slate-800 border border-slate-700 text-xs text-sky-300 rounded-lg px-2 py-1">
+          <option value="portal">1. Portal Cliente</option>
+          <option value="budget">2. Orçamentos</option>
+          <option value="schedule">3. Agendamento</option>
+          <option value="ia_whatsapp">4. Chat IA WhatsApp</option>
+          <option value="dashboard">5. Dashboard UX</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 overflow-y-auto pt-16 md:pt-0 bg-slate-950">
+      
+      <!-- Top Header Bar -->
+      <header class="bg-slate-900/60 backdrop-blur border-b border-slate-800 px-6 py-4 flex items-center justify-between sticky top-0 z-30">
+        <div>
+          <h2 class="text-lg font-bold text-white flex items-center gap-2" x-text="getHeaderTitle()"></h2>
+          <p class="text-xs text-slate-400" x-text="getHeaderSubtitle()"></p>
+        </div>
+
+        <div class="flex items-center gap-3">
+          <!-- Botão Ação Rápida QR Code Scan -->
+          <button 
+            @click="openQrModal()"
+            class="flex items-center gap-2 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-600 hover:to-cyan-600 text-slate-950 font-semibold text-xs px-3.5 py-2 rounded-xl transition shadow-lg shadow-sky-500/20"
+          >
+            <i data-lucide="qr-code" class="w-4 h-4"></i>
+            <span>Simular Scan QR Code</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="p-6 max-w-7xl mx-auto space-y-6">
+
+        <!-- ========================================================================= -->
+        <!-- SEÇÃO 1: PORTAL DO CLIENTE (MULTI-TENANT) -->
+        <!-- ========================================================================= -->
+        <section x-show="activeTab === 'portal'" x-transition class="space-y-6">
+          
+          <!-- Banner Tenant -->
+          <div class="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div class="flex items-center gap-4">
+              <div class="w-12 h-12 rounded-xl bg-sky-500/10 border border-sky-500/30 flex items-center justify-center text-sky-400 text-xl font-bold">
+                <i data-lucide="building" class="w-6 h-6"></i>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <h3 class="text-lg font-bold text-white">Hospital Santa Clara</h3>
+                  <span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-semibold px-2 py-0.5 rounded-full">Contrato VIP Ativo</span>
+                </div>
+                <p class="text-xs text-slate-400">CNPJ: 14.582.910/0001-44 • Belo Horizonte, MG • 14 Equipamentos Ativos</p>
+              </div>
+            </div>
+            
+            <div class="flex items-center gap-2 w-full sm:w-auto">
+              <button @click="showRequestModal = true" class="w-full sm:w-auto px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition">
+                <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                <span>Solicitar Chamado Técnico</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Filtros por Filial / Local -->
+          <div class="flex items-center justify-between gap-4 flex-wrap">
+            <div class="flex items-center gap-2 overflow-x-auto pb-1">
+              <span class="text-xs text-slate-400 font-medium mr-1">Filtrar por Local:</span>
+              <template x-for="loc in locations" :key="loc">
+                <button 
+                  @click="selectedLocation = loc" 
+                  :class="selectedLocation === loc ? 'bg-sky-500 text-slate-950 font-bold' : 'bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-800'"
+                  class="px-3 py-1.5 rounded-lg text-xs transition whitespace-nowrap"
+                  x-text="loc"
+                ></button>
+              </template>
+            </div>
+            <div class="text-xs text-slate-400">
+              Exibindo <span class="text-sky-400 font-bold" x-text="filteredEquipments.length"></span> de <span x-text="equipments.length"></span> equipamentos
+            </div>
+          </div>
+
+          <!-- Grid de Equipamentos com Health Score -->
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            <template x-for="eq in filteredEquipments" :key="eq.id">
+              <div class="bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-5 transition flex flex-col justify-between group">
+                <div>
+                  <!-- Header do Card -->
+                  <div class="flex items-start justify-between gap-2 mb-3">
+                    <div>
+                      <span class="text-[10px] uppercase font-bold text-sky-400 tracking-wider" x-text="eq.location"></span>
+                      <h4 class="font-bold text-white text-base group-hover:text-sky-300 transition" x-text="eq.name"></h4>
+                      <p class="text-xs text-slate-400" x-text="eq.model"></p>
+                    </div>
+                    <button @click="openQrDetails(eq)" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition" title="Ver QR Code & Ficha">
+                      <i data-lucide="qr-code" class="w-4 h-4"></i>
+                    </button>
+                  </div>
+
+                  <!-- Badge Health Score -->
+                  <div class="my-4 bg-slate-950/60 p-3 rounded-xl border border-slate-800/80 space-y-2">
+                    <div class="flex items-center justify-between text-xs">
+                      <span class="text-slate-400 flex items-center gap-1.5">
+                        <i data-lucide="activity" class="w-3.5 h-3.5 text-slate-400"></i> Health Score:
+                      </span>
+                      <span class="font-bold" :class="getHealthColorText(eq.healthScore)" x-text="eq.healthScore + '/100'"></span>
+                    </div>
+                    <!-- Barra de progresso -->
+                    <div class="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+                      <div class="h-full transition-all duration-500 rounded-full" :class="getHealthBgColor(eq.healthScore)" :style="'width: ' + eq.healthScore + '%'"></div>
+                    </div>
+                  </div>
+
+                  <!-- Detalhes Rápidos -->
+                  <div class="space-y-1.5 text-xs text-slate-400 mb-4">
+                    <div class="flex justify-between">
+                      <span class="text-slate-500">Última Preventiva:</span>
+                      <span class="text-slate-300 font-medium" x-text="eq.lastMaintenance"></span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-slate-500">Último Técnico:</span>
+                      <span class="text-slate-300 font-medium" x-text="eq.lastTech"></span>
+                    </div>
+                    <div class="flex justify-between">
+                      <span class="text-slate-500">Status Chamado:</span>
+                      <span :class="getStatusBadgeClass(eq.status)" class="text-[10px] font-semibold px-2 py-0.5 rounded-md" x-text="eq.statusText"></span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Ações do Card -->
+                <div class="pt-3 border-t border-slate-800/80 flex items-center justify-between gap-2">
+                  <button @click="openHistoryModal(eq)" class="text-xs text-sky-400 hover:text-sky-300 font-medium flex items-center gap-1">
+                    <i data-lucide="history" class="w-3.5 h-3.5"></i> Histórico (3)
+                  </button>
+                  <button @click="requestCallForEquipment(eq)" class="text-xs bg-slate-800 hover:bg-sky-600 hover:text-white text-slate-200 px-3 py-1.5 rounded-lg transition font-medium">
+                    Solicitar Reparo
+                  </button>
+                </div>
+              </div>
+            </template>
+          </div>
+
+        </section>
+
+        <!-- ========================================================================= -->
+        <!-- SEÇÃO 2: FLUXO DE ORÇAMENTO E PAGAMENTO -->
+        <!-- ========================================================================= -->
+        <section x-show="activeTab === 'budget'" x-transition class="space-y-6">
+          
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            
+            <!-- Lista de Orçamentos Pendentes -->
+            <div class="lg:col-span-1 space-y-3">
+              <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wider flex items-center justify-between">
+                <span>Orçamentos Pendentes</span>
+                <span class="bg-slate-800 text-sky-400 text-xs px-2 py-0.5 rounded-full" x-text="budgets.length"></span>
+              </h3>
+
+              <div class="space-y-3">
+                <template x-for="b in budgets" :key="b.id">
+                  <div 
+                    @click="selectedBudget = b"
+                    :class="selectedBudget.id === b.id ? 'border-sky-500 bg-slate-900 shadow-lg shadow-sky-500/5' : 'border-slate-800 bg-slate-900/60 hover:border-slate-700'"
+                    class="border rounded-2xl p-4 cursor-pointer transition relative"
+                  >
+                    <div class="flex items-start justify-between gap-2">
+                      <div>
+                        <span class="text-[10px] text-sky-400 font-bold uppercase" x-text="b.code"></span>
+                        <h4 class="font-bold text-white text-sm" x-text="b.equipmentName"></h4>
+                        <p class="text-xs text-slate-400" x-text="b.clientName"></p>
+                      </div>
+                      <span 
+                        :class="{
+                          'bg-amber-500/10 text-amber-400 border-amber-500/20': b.status === 'pending',
+                          'bg-emerald-500/10 text-emerald-400 border-emerald-500/20': b.status === 'approved',
+                          'bg-sky-500/10 text-sky-400 border-sky-500/20': b.status === 'scheduled'
+                        }"
+                        class="text-[10px] font-semibold px-2 py-0.5 rounded-full border"
+                        x-text="b.status === 'pending' ? 'Aguardando Aprovação' : (b.status === 'approved' ? 'Aprovado / PAGO' : 'Agendado')"
+                      ></span>
+                    </div>
+
+                    <div class="mt-4 flex items-center justify-between text-xs pt-3 border-t border-slate-800">
+                      <span class="text-slate-400">Total:</span>
+                      <span class="text-lg font-bold text-emerald-400" x-text="formatMoney(b.total)"></span>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </div>
+
+            <!-- Detalhe do Orçamento Selecionado & Checkout Interativo -->
+            <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+              
+              <template x-if="selectedBudget">
+                <div>
+                  <!-- Cabecalho Orçamento -->
+                  <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-4 border-b border-slate-800 gap-2">
+                    <div>
+                      <div class="flex items-center gap-3">
+                        <h3 class="text-xl font-bold text-white" x-text="'Orçamento #' + selectedBudget.code"></h3>
+                        <span class="bg-sky-500/10 text-sky-400 border border-sky-500/20 text-xs px-2.5 py-0.5 rounded-full font-medium" x-text="selectedBudget.equipmentName"></span>
+                      </div>
+                      <p class="text-xs text-slate-400 mt-1">Gerado em: <span x-text="selectedBudget.createdAt"></span> • Validade: 5 dias</p>
+                    </div>
+
+                    <div class="text-right">
+                      <span class="text-xs text-slate-400 block">Status Atual:</span>
+                      <span class="text-sm font-bold text-amber-400" x-text="selectedBudget.status === 'pending' ? 'Pendente de Aprovação' : 'Aprovado & Agendado'"></span>
+                    </div>
+                  </div>
+
+                  <!-- Descrição do Problema -->
+                  <div class="my-4 p-3 bg-slate-950/50 rounded-xl border border-slate-800 text-xs text-slate-300">
+                    <span class="font-semibold text-sky-400 block mb-1">Diagnóstico Técnico:</span>
+                    <p x-text="selectedBudget.diagnostics"></p>
+                  </div>
+
+                  <!-- Tabela de Itens/Mão de Obra -->
+                  <div class="overflow-x-auto my-4">
+                    <table class="w-full text-left text-xs text-slate-300">
+                      <thead class="bg-slate-800/60 uppercase text-[10px] text-slate-400 font-semibold">
+                        <tr>
+                          <th class="p-3 rounded-l-lg">Item / Descrição</th>
+                          <th class="p-3">Qtd</th>
+                          <th class="p-3 text-right">Valor Unit.</th>
+                          <th class="p-3 text-right rounded-r-lg">Subtotal</th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-slate-800">
+                        <template x-for="item in selectedBudget.items" :key="item.description">
+                          <tr>
+                            <td class="p-3 font-medium text-white" x-text="item.description"></td>
+                            <td class="p-3" x-text="item.qty"></td>
+                            <td class="p-3 text-right" x-text="formatMoney(item.unitPrice)"></td>
+                            <td class="p-3 text-right font-bold text-slate-200" x-text="formatMoney(item.qty * item.unitPrice)"></td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <!-- Escolha da Forma de Pagamento (Antes de Aprovar) -->
+                  <div x-show="selectedBudget.status === 'pending'" class="mt-6 pt-6 border-t border-slate-800 space-y-4">
+                    <h4 class="text-sm font-bold text-white flex items-center gap-2">
+                      <i data-lucide="credit-card" class="w-4 h-4 text-sky-400"></i>
+                      <span>Escolha a Forma de Pagamento para Aprovar</span>
+                    </h4>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <!-- Opção PIX -->
+                      <label 
+                        @click="paymentMethod = 'pix'" 
+                        :class="paymentMethod === 'pix' ? 'border-emerald-500 bg-emerald-950/20 text-white' : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700'"
+                        class="border rounded-xl p-3 cursor-pointer transition flex flex-col justify-between"
+                      >
+                        <div class="flex items-center justify-between mb-2">
+                          <span class="font-bold text-xs flex items-center gap-1.5 text-emerald-400">
+                            <i data-lucide="zap" class="w-4 h-4"></i> PIX Instantâneo
+                          </span>
+                          <span class="bg-emerald-500/20 text-emerald-300 text-[10px] px-1.5 py-0.5 rounded font-bold">-5% OFF</span>
+                        </div>
+                        <div class="text-xs">
+                          <span class="text-slate-400 block text-[10px]">Valor com desconto:</span>
+                          <span class="text-base font-bold text-emerald-400" x-text="formatMoney(selectedBudget.total * 0.95)"></span>
+                        </div>
+                      </label>
+
+                      <!-- Opção Cartão -->
+                      <label 
+                        @click="paymentMethod = 'card'" 
+                        :class="paymentMethod === 'card' ? 'border-sky-500 bg-sky-950/20 text-white' : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700'"
+                        class="border rounded-xl p-3 cursor-pointer transition flex flex-col justify-between"
+                      >
+                        <div class="flex items-center justify-between mb-2">
+                          <span class="font-bold text-xs flex items-center gap-1.5 text-sky-400">
+                            <i data-lucide="credit-card" class="w-4 h-4"></i> Mercado Pago
+                          </span>
+                          <span class="text-slate-400 text-[10px]">Até 6x</span>
+                        </div>
+                        <div class="text-xs">
+                          <span class="text-slate-400 block text-[10px]">6x de:</span>
+                          <span class="text-base font-bold text-sky-300" x-text="formatMoney((selectedBudget.total * 1.05) / 6)"></span>
+                        </div>
+                      </label>
+
+                      <!-- Opção Boleto / Omie -->
+                      <label 
+                        @click="paymentMethod = 'boleto'" 
+                        :class="paymentMethod === 'boleto' ? 'border-purple-500 bg-purple-950/20 text-white' : 'border-slate-800 bg-slate-950/40 text-slate-400 hover:border-slate-700'"
+                        class="border rounded-xl p-3 cursor-pointer transition flex flex-col justify-between"
+                      >
+                        <div class="flex items-center justify-between mb-2">
+                          <span class="font-bold text-xs flex items-center gap-1.5 text-purple-400">
+                            <i data-lucide="file-text" class="w-4 h-4"></i> Boleto / Omie
+                          </span>
+                          <span class="text-slate-400 text-[10px]">Faturado 30d</span>
+                        </div>
+                        <div class="text-xs">
+                          <span class="text-slate-400 block text-[10px]">Valor original:</span>
+                          <span class="text-base font-bold text-purple-300" x-text="formatMoney(selectedBudget.total)"></span>
+                        </div>
+                      </label>
+                    </div>
+
+                    <!-- Botão de Aprovação Interativo -->
+                    <div class="pt-4 flex items-center justify-end gap-3">
+                      <button @click="rejectBudget()" class="px-4 py-2.5 bg-slate-800 hover:bg-rose-950/50 text-slate-300 hover:text-rose-400 rounded-xl text-xs font-semibold transition border border-transparent hover:border-rose-800">
+                        Recusar Orçamento
+                      </button>
+                      
+                      <button 
+                        @click="approveAndPayBudget()"
+                        :disabled="isProcessingPayment"
+                        class="px-6 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-slate-950 font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/20 transition flex items-center gap-2"
+                      >
+                        <template x-if="!isProcessingPayment">
+                          <span class="flex items-center gap-2">
+                            <i data-lucide="check-circle" class="w-4 h-4"></i>
+                            <span>Aprovar Orçamento e Pagar</span>
+                          </span>
+                        </template>
+                        <template x-if="isProcessingPayment">
+                          <span class="flex items-center gap-2">
+                            <i data-lucide="loader-2" class="w-4 h-4 animate-spin"></i>
+                            <span>Processando Mercado Pago...</span>
+                          </span>
+                        </template>
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Status Aprovado Mensagem -->
+                  <div x-show="selectedBudget.status !== 'pending'" class="mt-6 p-4 bg-emerald-950/40 border border-emerald-500/30 rounded-xl flex items-center justify-between text-xs">
+                    <div class="flex items-center gap-3 text-emerald-300">
+                      <i data-lucide="check-circle-2" class="w-6 h-6 text-emerald-400"></i>
+                      <div>
+                        <p class="font-bold text-white">Orçamento Aprovado e Pagamento Confirmado!</p>
+                        <p class="text-slate-300">O serviço foi encaminhado para a <strong class="text-sky-400">Fila de Agendamento</strong> interna.</p>
+                      </div>
+                    </div>
+                    <button @click="activeTab = 'schedule'" class="px-3 py-1.5 bg-emerald-500 text-slate-950 font-bold rounded-lg text-xs hover:bg-emerald-400 transition">
+                      Ver na Agenda &rarr;
+                    </button>
+                  </div>
+
+                </div>
+              </template>
+
+            </div>
+
+          </div>
+
+        </section>
+
+        <!-- ========================================================================= -->
+        <!-- SEÇÃO 3: FILA DE AGENDAMENTO (VISÃO ATENDENTE/INTERNO) -->
+        <!-- ========================================================================= -->
+        <section x-show="activeTab === 'schedule'" x-transition class="space-y-6">
+          
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 class="text-base font-bold text-white">Fila de Agendamento Interno</h3>
+                <p class="text-xs text-slate-400">Orçamentos aprovados aguardando alocação de técnico e data na agenda.</p>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs px-3 py-1 rounded-full font-semibold" x-text="scheduleQueue.length + ' Pendentes de Data'"></span>
+              </div>
+            </div>
+
+            <!-- Tabela de Orçamentos Prontos para Agendar -->
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs text-slate-300">
+                <thead class="bg-slate-800/80 uppercase text-[10px] text-slate-400 font-semibold">
+                  <tr>
+                    <th class="p-3 rounded-l-lg">Cliente / Local</th>
+                    <th class="p-3">Equipamento</th>
+                    <th class="p-3">Valor Aprovado</th>
+                    <th class="p-3">Selecionar Técnico</th>
+                    <th class="p-3">Data & Horário</th>
+                    <th class="p-3 text-right rounded-r-lg">Ação</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800">
+                  <template x-for="item in scheduleQueue" :key="item.id">
+                    <tr class="hover:bg-slate-800/40 transition">
+                      <td class="p-3">
+                        <span class="font-bold text-white block" x-text="item.client"></span>
+                        <span class="text-[10px] text-slate-400" x-text="item.location"></span>
+                      </td>
+                      <td class="p-3 font-medium text-sky-400" x-text="item.equipment"></td>
+                      <td class="p-3 font-bold text-emerald-400" x-text="formatMoney(item.total)"></td>
+                      <td class="p-3">
+                        <select x-model="item.selectedTech" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-sky-500">
+                          <option value="">-- Selecionar Técnico --</option>
+                          <option value="Carlos Silva (Refrigeração)">Carlos Silva (Especialista Split)</option>
+                          <option value="Roberto Mendes (HVAC)">Roberto Mendes (HVAC Industrial)</option>
+                          <option value="Lucas Prado (Manutenção)">Lucas Prado (Preventiva)</option>
+                        </select>
+                      </td>
+                      <td class="p-3">
+                        <input type="date" x-model="item.selectedDate" class="bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-xs text-slate-200 focus:outline-none focus:border-sky-500">
+                      </td>
+                      <td class="p-3 text-right">
+                        <button 
+                          @click="confirmSchedule(item)" 
+                          class="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white font-semibold rounded-lg text-xs transition shadow-md shadow-sky-600/20"
+                        >
+                          Confirmar Agenda
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                  <template x-if="scheduleQueue.length === 0">
+                    <tr>
+                      <td colspan="6" class="p-6 text-center text-slate-500">
+                        Nenhum orçamento pendente de agendamento no momento.
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Agenda Visão Calendário Emulada -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+            <h3 class="text-base font-bold text-white flex items-center gap-2">
+              <i data-lucide="calendar" class="w-5 h-5 text-sky-400"></i>
+              <span>Escala da Semana (Técnicos Alocados)</span>
+            </h3>
+
+            <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+              <template x-for="day in weekSchedule" :key="day.dayName">
+                <div class="bg-slate-950 border border-slate-800/80 rounded-xl p-3 flex flex-col justify-between min-h-[160px]">
+                  <div>
+                    <div class="flex items-center justify-between pb-2 border-b border-slate-800 mb-2">
+                      <span class="font-bold text-xs text-sky-400" x-text="day.dayName"></span>
+                      <span class="text-[10px] text-slate-500" x-text="day.date"></span>
+                    </div>
+
+                    <div class="space-y-2">
+                      <template x-for="evt in day.events" :key="evt.id">
+                        <div class="p-2 bg-slate-900 rounded-lg border border-slate-800 text-[11px] space-y-1">
+                          <span class="font-bold text-white block truncate" x-text="evt.client"></span>
+                          <span class="text-[10px] text-slate-400 block" x-text="evt.tech"></span>
+                          <span class="inline-block bg-sky-500/20 text-sky-300 text-[9px] px-1.5 py-0.2 rounded" x-text="evt.time"></span>
+                        </div>
+                      </template>
+                    </div>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+
+        </section>
+
+        <!-- ========================================================================= -->
+        <!-- SEÇÃO 4: AUTOMAÇÃO IA NO WHATSAPP (n8n + WAHA + LLM) -->
+        <!-- ========================================================================= -->
+        <section x-show="activeTab === 'ia_whatsapp'" x-transition class="space-y-6">
+          
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- Chat Simulador WhatsApp (Esquerda) -->
+            <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col h-[620px] overflow-hidden shadow-2xl">
+              
+              <!-- Header Chat -->
+              <div class="p-4 bg-slate-800/90 border-b border-slate-700/80 flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <div class="relative">
+                    <div class="w-10 h-10 rounded-full bg-emerald-600 flex items-center justify-center text-white font-bold">
+                      <i data-lucide="bot" class="w-5 h-5"></i>
+                    </div>
+                    <span class="w-3 h-3 bg-emerald-400 border-2 border-slate-900 rounded-full absolute bottom-0 right-0"></span>
+                  </div>
+                  <div>
+                    <h4 class="font-bold text-white text-sm flex items-center gap-2">
+                      <span>ClimaFlux IA Assistant</span>
+                      <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded font-mono">n8n + WAHA</span>
+                    </h4>
+                    <p class="text-[11px] text-slate-400">Atendimento Automático Inteligente (Belo Horizonte)</p>
+                  </div>
+                </div>
+
+                <button @click="resetChat()" class="text-xs text-slate-400 hover:text-white bg-slate-700/50 px-2.5 py-1 rounded-lg transition">
+                  Reiniciar Conversa
+                </button>
+              </div>
+
+              <!-- Mensagens Body -->
+              <div class="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-950/80" id="chatContainer">
+                <template x-for="(msg, idx) in chatMessages" :key="idx">
+                  <div class="flex flex-col" :class="msg.sender === 'user' ? 'items-end' : 'items-start'">
+                    
+                    <div 
+                      :class="msg.sender === 'user' ? 'bg-sky-600 text-white rounded-tr-none' : 'bg-slate-800 border border-slate-700 text-slate-200 rounded-tl-none'"
+                      class="max-w-[85%] rounded-2xl p-3 text-xs leading-relaxed shadow"
+                    >
+                      <p x-html="msg.text"></p>
+                    </div>
+
+                    <span class="text-[9px] text-slate-500 mt-1 px-1" x-text="msg.time"></span>
+                  </div>
+                </template>
+                
+                <!-- Typing indicator -->
+                <div x-show="isIaTyping" class="flex items-center gap-2 bg-slate-800 text-slate-400 p-2.5 rounded-xl text-xs w-max border border-slate-700">
+                  <i data-lucide="loader-2" class="w-4 h-4 animate-spin text-sky-400"></i>
+                  <span>IA processando linguagem natural (LLM + Structured Output)...</span>
+                </div>
+              </div>
+
+              <!-- Quick Prompts + Input -->
+              <div class="p-3 bg-slate-900 border-t border-slate-800 space-y-2">
+                <div class="flex items-center gap-2 overflow-x-auto pb-1 text-[11px]">
+                  <span class="text-slate-500 shrink-0 font-medium">Testar Mensagens:</span>
+                  <button @click="sendQuickMsg('Olá, preciso de um orçamento de manutenção preventiva para 3 Splits no Centro.')" class="bg-slate-800 hover:bg-slate-700 text-sky-300 px-2.5 py-1 rounded-lg shrink-0 transition">
+                    💬 "Manutenção no Centro"
+                  </button>
+                  <button @click="sendQuickMsg('Meu ar-condicionado VRF no Hospital Santa Clara parou de gelar e está vazando água!')" class="bg-slate-800 hover:bg-slate-700 text-amber-300 px-2.5 py-1 rounded-lg shrink-0 transition">
+                    🚨 "Urgência / Vazamento"
+                  </button>
+                </div>
+
+                <div class="flex items-center gap-2">
+                  <input 
+                    type="text" 
+                    x-model="userInputMsg" 
+                    @keydown.enter="sendUserMessage()"
+                    placeholder="Digite sua mensagem como cliente no WhatsApp..." 
+                    class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
+                  />
+                  <button @click="sendUserMessage()" class="p-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 rounded-xl transition">
+                    <i data-lucide="send" class="w-4 h-4"></i>
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            <!-- Visualizador de Extração JSON & Automação n8n (Direita) -->
+            <div class="lg:col-span-5 space-y-4">
+              
+              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+                  <h4 class="font-bold text-white text-xs uppercase tracking-wider flex items-center gap-2">
+                    <i data-lucide="code" class="w-4 h-4 text-emerald-400"></i>
+                    <span>Structured Output (JSON Extraído pela IA)</span>
+                  </h4>
+                  <span class="bg-emerald-500/20 text-emerald-300 text-[10px] font-mono px-2 py-0.5 rounded">Claude-3.5 / OpenAI</span>
+                </div>
+
+                <p class="text-xs text-slate-400">Dados estruturados em tempo real enviados via Webhook REST para a API Next.js e PostgreSQL:</p>
+
+                <!-- Code block visual -->
+                <pre class="bg-slate-950 p-4 rounded-xl border border-slate-800 font-mono text-[11px] text-emerald-400 overflow-x-auto max-h-[300px]" x-text="JSON.stringify(lastExtractedJson, null, 2)"></pre>
+              </div>
+
+              <!-- Status do Fluxo n8n -->
+              <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-3">
+                <h4 class="font-bold text-white text-xs uppercase tracking-wider flex items-center gap-2">
+                  <i data-lucide="workflow" class="w-4 h-4 text-sky-400"></i>
+                  <span>Status do Pipeline de Automação n8n</span>
+                </h4>
+
+                <div class="space-y-2 text-xs">
+                  <div class="flex items-center justify-between p-2.5 bg-slate-950 rounded-xl border border-slate-800">
+                    <span class="text-slate-300 flex items-center gap-2">
+                      <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> Recebimento Webhook WAHA
+                    </span>
+                    <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded">200 OK</span>
+                  </div>
+
+                  <div class="flex items-center justify-between p-2.5 bg-slate-950 rounded-xl border border-slate-800">
+                    <span class="text-slate-300 flex items-center gap-2">
+                      <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> Extração com LLM (Function Calling)
+                    </span>
+                    <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded">Sucesso</span>
+                  </div>
+
+                  <div class="flex items-center justify-between p-2.5 bg-slate-950 rounded-xl border border-slate-800">
+                    <span class="text-slate-300 flex items-center gap-2">
+                      <i data-lucide="check-circle-2" class="w-4 h-4 text-emerald-400"></i> Cadastro Automático no Next.js/Postgres
+                    </span>
+                    <span class="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded">Inserido DB</span>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+
+        </section>
+
+        <!-- ========================================================================= -->
+        <!-- SEÇÃO 5: PAINEL INTERNO / AJUSTES UX/UI -->
+        <!-- ========================================================================= -->
+        <section x-show="activeTab === 'dashboard'" x-transition class="space-y-6">
+          
+          <!-- Key Metrics -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+              <div>
+                <span class="text-xs text-slate-400 block font-medium">Chamados Ativos</span>
+                <span class="text-2xl font-bold text-white mt-1 block">18</span>
+                <span class="text-[10px] text-emerald-400 font-medium">↑ +3 esta semana</span>
+              </div>
+              <div class="p-3 bg-sky-500/10 text-sky-400 rounded-xl border border-sky-500/20">
+                <i data-lucide="wrench" class="w-6 h-6"></i>
+              </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+              <div>
+                <span class="text-xs text-slate-400 block font-medium">Health Score Médio</span>
+                <span class="text-2xl font-bold text-emerald-400 mt-1 block">82 / 100</span>
+                <span class="text-[10px] text-slate-400 font-medium">Geral dos Equipamentos</span>
+              </div>
+              <div class="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl border border-emerald-500/20">
+                <i data-lucide="activity" class="w-6 h-6"></i>
+              </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+              <div>
+                <span class="text-xs text-slate-400 block font-medium">Em Risco (&lt;50 Score)</span>
+                <span class="text-2xl font-bold text-rose-400 mt-1 block">2 Equipamentos</span>
+                <span class="text-[10px] text-rose-400 font-medium">Necessita preventiva urgentemente</span>
+              </div>
+              <div class="p-3 bg-rose-500/10 text-rose-400 rounded-xl border border-rose-500/20">
+                <i data-lucide="alert-triangle" class="w-6 h-6"></i>
+              </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex items-center justify-between">
+              <div>
+                <span class="text-xs text-slate-400 block font-medium">Faturamento Mês</span>
+                <span class="text-2xl font-bold text-white mt-1 block">R$ 38.450</span>
+                <span class="text-[10px] text-emerald-400 font-medium">Sincronizado via Omie</span>
+              </div>
+              <div class="p-3 bg-purple-500/10 text-purple-400 rounded-xl border border-purple-500/20">
+                <i data-lucide="dollar-sign" class="w-6 h-6"></i>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tabela Padronizada com Filtros -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4">
+            
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h3 class="text-base font-bold text-white flex items-center gap-2">
+                <i data-lucide="list" class="w-5 h-5 text-sky-400"></i>
+                <span>Gestão Global de Chamados Técnicos</span>
+              </h3>
+
+              <div class="flex items-center gap-2">
+                <input type="text" placeholder="Buscar por cliente, equipamento..." class="bg-slate-950 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 w-48 sm:w-64">
+                
+                <button class="px-3 py-1.5 bg-slate-800 text-slate-300 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 border border-slate-700">
+                  <i data-lucide="filter" class="w-3.5 h-3.5"></i> Filtros
+                </button>
+              </div>
+            </div>
+
+            <!-- Table -->
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs text-slate-300">
+                <thead class="bg-slate-800/80 uppercase text-[10px] text-slate-400 font-semibold">
+                  <tr>
+                    <th class="p-3 rounded-l-lg">Protocolo</th>
+                    <th class="p-3">Empresa Cliente</th>
+                    <th class="p-3">Equipamento</th>
+                    <th class="p-3">Health Score</th>
+                    <th class="p-3">Status Chamado</th>
+                    <th class="p-3">Técnico</th>
+                    <th class="p-3 text-right rounded-r-lg">Ações</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-800">
+                  <template x-for="ch in allTickets" :key="ch.id">
+                    <tr class="hover:bg-slate-800/40 transition">
+                      <td class="p-3 font-mono text-sky-400 font-bold" x-text="ch.protocol"></td>
+                      <td class="p-3 font-medium text-white" x-text="ch.client"></td>
+                      <td class="p-3 text-slate-300" x-text="ch.equipment"></td>
+                      <td class="p-3">
+                        <span class="font-bold text-xs" :class="getHealthColorText(ch.healthScore)" x-text="ch.healthScore + '/100'"></span>
+                      </td>
+                      <td class="p-3">
+                        <span :class="getStatusBadgeClass(ch.status)" class="text-[10px] font-semibold px-2 py-0.5 rounded-md" x-text="ch.statusText"></span>
+                      </td>
+                      <td class="p-3 text-slate-300" x-text="ch.tech || 'Pendente'"></td>
+                      <td class="p-3 text-right">
+                        <button class="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition" title="Detalhes do Chamado">
+                          <i data-lucide="eye" class="w-4 h-4"></i>
+                        </button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+
+        </section>
+
+      </div>
+    </main>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- MODAIS DO PROTÓTIPO -->
+  <!-- ========================================================================= -->
+
+  <!-- Modal 1: Leitor/Simulador de QR Code -->
+  <div x-show="showQrModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div @click.away="showQrModal = false" class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-5 shadow-2xl relative">
+      
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i data-lucide="qr-code" class="w-5 h-5 text-sky-400"></i>
+          <span>Simulador de QR Code do Equipamento</span>
+        </h3>
+        <button @click="showQrModal = false" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Preview QR Code SVG Estilizado -->
+      <div class="bg-slate-950 p-6 rounded-2xl border border-slate-800 flex flex-col items-center justify-center text-center space-y-3">
+        <div class="p-4 bg-white rounded-xl shadow-lg">
+          <!-- QR Code SVG Simulado -->
+          <svg class="w-36 h-36" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="100" fill="white"/>
+            <path d="M0 0h35v35H0zM10 10h15v15H10zM65 0h35v35H65zM75 10h15v15H75zM0 65h35v35H0zM10 75h15v15H10z" fill="#090d16"/>
+            <path d="M40 10h15v10H40zM40 30h25v10H40zM10 40h20v15H10zM40 50h15v20H40zM65 45h25v10H65zM70 65h30v30H70zM45 80h15v15H45z" fill="#090d16"/>
+          </svg>
+        </div>
+        <p class="text-xs text-sky-400 font-mono font-semibold" x-text="activeQrEquipment ? activeQrEquipment.qrCode : 'QR-SPLIT-DAIKIN-18000'"></p>
+        <span class="text-[11px] text-slate-400">Adesivo colado diretamente na carcaça do equipamento</span>
+      </div>
+
+      <!-- Ficha Técnica Resumida -->
+      <template x-if="activeQrEquipment">
+        <div class="space-y-2 bg-slate-950/50 p-3.5 rounded-xl border border-slate-800/80 text-xs">
+          <div class="flex justify-between">
+            <span class="text-slate-400">Equipamento:</span>
+            <span class="font-bold text-white" x-text="activeQrEquipment.name"></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Localização:</span>
+            <span class="text-slate-300" x-text="activeQrEquipment.location"></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-slate-400">Health Score:</span>
+            <span class="font-bold" :class="getHealthColorText(activeQrEquipment.healthScore)" x-text="activeQrEquipment.healthScore + '/100'"></span>
+          </div>
+        </div>
+      </template>
+
+      <div class="pt-2 flex items-center justify-end gap-3">
+        <button @click="showQrModal = false" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold">
+          Fechar
+        </button>
+        <button @click="requestCallForEquipment(activeQrEquipment); showQrModal = false" class="px-4 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-semibold">
+          Solicitar Atendimento para Este QR
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Modal 2: Histórico do Equipamento -->
+  <div x-show="showHistoryModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div @click.away="showHistoryModal = false" class="bg-slate-900 border border-slate-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative">
+      
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h3 class="text-base font-bold text-white">Histórico de Manutenções</h3>
+          <p class="text-xs text-sky-400" x-text="selectedHistoryEq ? selectedHistoryEq.name + ' (' + selectedHistoryEq.location + ')' : ''"></p>
+        </div>
+        <button @click="showHistoryModal = false" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Timeline do Histórico -->
+      <div class="space-y-3 max-h-[350px] overflow-y-auto pr-1">
+        <template x-for="item in mockHistoryEvents" :key="item.date">
+          <div class="p-3 bg-slate-950 rounded-xl border border-slate-800 text-xs space-y-1">
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-white" x-text="item.type"></span>
+              <span class="text-[10px] text-slate-400 font-mono" x-text="item.date"></span>
+            </div>
+            <p class="text-slate-300" x-text="item.desc"></p>
+            <div class="flex justify-between items-center pt-1 text-[10px] text-slate-500">
+              <span>Técnico: <strong class="text-slate-400" x-text="item.tech"></strong></span>
+              <span class="text-emerald-400">Relatório Assinado</span>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <div class="pt-2 text-right">
+        <button @click="showHistoryModal = false" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold">
+          Fechar Histórico
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Modal 3: Solicitação de Chamado -->
+  <div x-show="showRequestModal" x-cloak class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div @click.away="showRequestModal = false" class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 space-y-4 shadow-2xl relative">
+      
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i data-lucide="plus-circle" class="w-5 h-5 text-sky-400"></i>
+          <span>Nova Solicitação de Manutenção</span>
+        </h3>
+        <button @click="showRequestModal = false" class="text-slate-400 hover:text-white">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <form @submit.prevent="submitRequestCall()" class="space-y-3 text-xs">
+        <div>
+          <label class="text-slate-400 block mb-1 font-medium">Equipamento Atingido:</label>
+          <select x-model="newRequest.equipmentId" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-none focus:border-sky-500">
+            <template x-for="eq in equipments" :key="eq.id">
+              <option :value="eq.id" x-text="eq.name + ' (' + eq.location + ')'"></option>
+            </template>
+          </select>
+        </div>
+
+        <div>
+          <label class="text-slate-400 block mb-1 font-medium">Tipo de Problema / Observação:</label>
+          <textarea x-model="newRequest.description" rows="3" placeholder="Ex: Ar não está refrigerando a sala corretamente e apresenta ruído estranho..." class="w-full bg-slate-950 border border-slate-700 rounded-xl p-3 text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500"></textarea>
+        </div>
+
+        <div class="pt-2 flex items-center justify-end gap-3">
+          <button type="button" @click="showRequestModal = false" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl text-xs font-semibold">
+            Cancelar
+          </button>
+          <button type="submit" class="px-5 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-bold transition">
+            Enviar Solicitação
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+
+
+  <!-- LÓGICA E DADOS ALPINE.JS -->
+  <script>
+    function appData() {
+      return {
+        // Estado de navegação
+        activeTab: 'portal',
+        currentRole: 'client', // client | admin
+
+        // Modais
+        showQrModal: false,
+        showHistoryModal: false,
+        showRequestModal: false,
+        activeQrEquipment: null,
+        selectedHistoryEq: null,
+
+        // Toasts
+        toasts: [],
+
+        // Filtro de Local no Portal
+        selectedLocation: 'Todos',
+        locations: ['Todos', 'UTI Adulto - Bloco A', 'Recepção Principal', 'Sala de Cirurgia 02', 'Data Center / Servidores'],
+
+        // Form solicitação
+        newRequest: {
+          equipmentId: 1,
+          description: ''
+        },
+
+        // Equipamentos do Portal (Multi-tenant)
+        equipments: [
+          { id: 1, name: 'Split Daikin 18.000 BTU', model: 'Inverter FTXB18', location: 'UTI Adulto - Bloco A', healthScore: 92, lastMaintenance: '15/10/2024', lastTech: 'Carlos Silva', status: 'normal', statusText: 'Operando Normal', qrCode: 'QR-UTI-01-DAIKIN' },
+          { id: 2, name: 'Cassette Fujitsu 36.000 BTU', model: 'AUYG36LVLB', location: 'Recepção Principal', healthScore: 45, lastMaintenance: '02/08/2024', lastTech: 'Roberto Mendes', status: 'warning', statusText: 'Revisão Pendente', qrCode: 'QR-REC-02-FUJITSU' },
+          { id: 3, name: 'Chiller Trane 50 TR', model: 'CGAM 050', location: 'Sala de Cirurgia 02', healthScore: 98, lastMaintenance: '28/10/2024', lastTech: 'Carlos Silva', status: 'normal', statusText: 'Operando Normal', qrCode: 'QR-CIR-03-TRANE' },
+          { id: 4, name: 'Precision Cooling Stulz', model: 'CyberAir 3', location: 'Data Center / Servidores', healthScore: 35, lastMaintenance: '10/05/2024', lastTech: 'Lucas Prado', status: 'danger', statusText: 'Em Análise de Orçamento', qrCode: 'QR-DC-04-STULZ' },
+          { id: 5, name: 'Split High Wall Elgin 12.000 BTU', model: 'Eco Logic 12K', location: 'Recepção Principal', healthScore: 88, lastMaintenance: '20/09/2024', lastTech: 'Carlos Silva', status: 'normal', statusText: 'Operando Normal', qrCode: 'QR-REC-05-ELGIN' }
+        ],
+
+        // Orçamentos
+        paymentMethod: 'pix',
+        isProcessingPayment: false,
+        selectedBudget: null,
+        budgets: [
+          {
+            id: 101,
+            code: 'ORC-2024-882',
+            clientName: 'Hospital Santa Clara',
+            equipmentName: 'Precision Cooling Stulz (Data Center)',
+            status: 'pending',
+            createdAt: '29/10/2024',
+            diagnostics: 'Vazamento de fluido refrigerante R410A no trocador de calor e necessidade de substituição de filtro secador com carga de gás.',
+            total: 3450.00,
+            items: [
+              { description: 'Substituição Filtro Secador Danfoss DCL', qty: 1, unitPrice: 450.00 },
+              { description: 'Carga Completa Gás Refrigerante R410A (8kg)', qty: 1, unitPrice: 1200.00 },
+              { description: 'Mão de Obra Especializada HVAC Precision', qty: 1, unitPrice: 1800.00 }
+            ]
+          },
+          {
+            id: 102,
+            code: 'ORC-2024-890',
+            clientName: 'Hospital Santa Clara',
+            equipmentName: 'Cassette Fujitsu 36.000 (Recepção)',
+            status: 'pending',
+            createdAt: '30/10/2024',
+            diagnostics: 'Limpeza química da serpentina, higienização de bandeja de condensado e troca do motor da bomba de dreno.',
+            total: 1280.00,
+            items: [
+              { description: 'Bomba de Dreno Mini Orange 220V', qty: 1, unitPrice: 580.00 },
+              { description: 'Higienização Química Antibacteriana', qty: 1, unitPrice: 350.00 },
+              { description: 'Mão de Obra de Instalação e Testes', qty: 1, unitPrice: 350.00 }
+            ]
+          }
+        ],
+
+        // Fila de Agendamento
+        scheduleQueue: [
+          { id: 201, client: 'Academia FitLife - Unidade Savassi', location: 'Sala de Musculação', equipment: 'Multi Split Carrier 48K', total: 2150.00, selectedTech: '', selectedDate: '' }
+        ],
+
+        // Agenda semanal emulada
+        weekSchedule: [
+          { dayName: 'Segunda', date: '04/Nov', events: [{ id: 1, client: 'Hosp. S. Clara', tech: 'Carlos Silva', time: '09:00 - 12:00' }] },
+          { dayName: 'Terça', date: '05/Nov', events: [{ id: 2, client: 'Academia FitLife', tech: 'Roberto Mendes', time: '14:00 - 17:00' }] },
+          { dayName: 'Quarta', date: '06/Nov', events: [] },
+          { dayName: 'Quinta', date: '07/Nov', events: [{ id: 3, client: 'Banco Central BH', tech: 'Lucas Prado', time: '10:00 - 15:00' }] },
+          { dayName: 'Sexta', date: '08/Nov', events: [] }
+        ],
+
+        // Chat IA WhatsApp Simulation
+        userInputMsg: '',
+        isIaTyping: false,
+        chatMessages: [
+          { sender: 'ia', text: 'Olá! Sou a <strong>IA de Atendimento ClimaFlux</strong>. ❄️<br>Como posso ajudar com a climatização da sua empresa hoje?', time: '17:20' }
+        ],
+        lastExtractedJson: {
+          cliente_identificado: "Pendente",
+          equipamento: "Não especificado",
+          localizacao: "Desconhecida",
+          urgencia: "Media",
+          orcamento_gerado: false
+        },
+
+        // Dashboard Global Tickets
+        allTickets: [
+          { id: 1, protocol: 'CH-9921', client: 'Hospital Santa Clara', equipment: 'Precision Cooling Stulz', healthScore: 35, status: 'danger', statusText: 'Orçamento Pendente', tech: 'Lucas Prado' },
+          { id: 2, protocol: 'CH-9920', client: 'Academia FitLife', equipment: 'Multi Split Carrier 48K', healthScore: 68, status: 'approved', statusText: 'Aguardando Agendamento', tech: '-' },
+          { id: 3, protocol: 'CH-9918', client: 'Hospital Santa Clara', equipment: 'Chiller Trane 50 TR', healthScore: 98, status: 'normal', statusText: 'Preventiva OK', tech: 'Carlos Silva' },
+          { id: 4, protocol: 'CH-9915', client: 'Escola Santo Agostinho', equipment: 'Split Elgin 24.000 BTU', healthScore: 50, status: 'warning', statusText: 'Em Manutenção', tech: 'Roberto Mendes' }
+        ],
+
+        // Mock history
+        mockHistoryEvents: [
+          { type: 'Manutenção Preventiva', date: '15/10/2024', desc: 'Higienização dos filtros, medição de pressão do gás (65 PSI) e reaperto de bornes elétricos.', tech: 'Carlos Silva' },
+          { type: 'Corretiva / Troca de Peça', date: '12/04/2024', desc: 'Substituição do capacitor de partida do compressor (45 uF).', tech: 'Roberto Mendes' },
+          { type: 'Inspeção Periódica PMOC', date: '10/01/2024', desc: 'Vistoria semestral em conformidade com as normas da Anvisa.', tech: 'Carlos Silva' }
+        ],
+
+        // Getters & Calculados
+        get filteredEquipments() {
+          if (this.selectedLocation === 'Todos') return this.equipments;
+          return this.equipments.filter(e => e.location === this.selectedLocation);
+        },
+
+        get pendingBudgetsCount() {
+          return this.budgets.filter(b => b.status === 'pending').length;
+        },
+
+        get approvedCount() {
+          return this.scheduleQueue.length;
+        },
+
+        // Métodos de inicialização
+        initApp() {
+          if (this.budgets.length > 0) {
+            this.selectedBudget = this.budgets[0];
+          }
+          this.$nextTick(() => {
+            if (window.lucide) window.lucide.createIcons();
+          });
+        },
+
+        getHeaderTitle() {
+          switch(this.activeTab) {
+            case 'portal': return 'Portal do Cliente • Equipamentos & Health Score';
+            case 'budget': return 'Aprovação de Orçamentos & Checkout Mercado Pago';
+            case 'schedule': return 'Fila de Agendamento & Escala de Técnicos';
+            case 'ia_whatsapp': return 'Simulador de Atendimento IA via WhatsApp (WAHA + n8n)';
+            case 'dashboard': return 'Painel Interno de Gestão & Indicadores UX';
+            default: return 'Sistema de Climatização';
+          }
+        },
+
+        getHeaderSubtitle() {
+          switch(this.activeTab) {
+            case 'portal': return 'Visão consolidada para empresas clientes com leitura de QR Code em tempo real';
+            case 'budget': return 'Escolha de forma de pagamento com regras de desconto e integração Mercado Pago/Omie';
+            case 'schedule': return 'Alocação rápida de técnicos para orçamentos recém-aprovados';
+            case 'ia_whatsapp': return 'Demonstração de extração de linguagem natural para cadastro automático no PostgreSQL';
+            case 'dashboard': return 'Visão executiva com métricas globais e controle unificado de chamados';
+            default: return '';
+          }
+        },
+
+        onRoleChange() {
+          if (this.currentRole === 'client') {
+            this.activeTab = 'portal';
+            this.addToast('Alternado para visão: Empresa Cliente', 'info');
+          } else {
+            this.activeTab = 'dashboard';
+            this.addToast('Alternado para visão: Atendente / Gestor Interno', 'info');
+          }
+          this.reinitIcons();
+        },
+
+        reinitIcons() {
+          setTimeout(() => {
+            if (window.lucide) window.lucide.createIcons();
+          }, 100);
+        },
+
+        // Auxiliares de Estilização
+        getHealthColorText(score) {
+          if (score >= 80) return 'text-emerald-400';
+          if (score >= 50) return 'text-amber-400';
+          return 'text-rose-400 animate-pulse';
+        },
+
+        getHealthBgColor(score) {
+          if (score >= 80) return 'bg-emerald-500';
+          if (score >= 50) return 'bg-amber-500';
+          return 'bg-rose-500';
+        },
+
+        getStatusBadgeClass(status) {
+          switch(status) {
+            case 'normal': return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+            case 'warning': return 'bg-amber-500/10 text-amber-400 border border-amber-500/20';
+            case 'danger': return 'bg-rose-500/10 text-rose-400 border border-rose-500/20';
+            default: return 'bg-slate-800 text-slate-300';
+          }
+        },
+
+        formatMoney(val) {
+          return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
+        },
+
+        // Modais e Ações
+        openQrModal() {
+          this.activeQrEquipment = this.equipments[0];
+          this.showQrModal = true;
+          this.reinitIcons();
+        },
+
+        openQrDetails(eq) {
+          this.activeQrEquipment = eq;
+          this.showQrModal = true;
+          this.reinitIcons();
+        },
+
+        openHistoryModal(eq) {
+          this.selectedHistoryEq = eq;
+          this.showHistoryModal = true;
+          this.reinitIcons();
+        },
+
+        requestCallForEquipment(eq) {
+          if (eq) {
+            this.newRequest.equipmentId = eq.id;
+          }
+          this.showRequestModal = true;
+          this.reinitIcons();
+        },
+
+        submitRequestCall() {
+          const eq = this.equipments.find(e => e.id == this.newRequest.equipmentId);
+          const eqName = eq ? eq.name : 'Equipamento';
+          
+          this.showRequestModal = false;
+          this.addToast(`Chamado aberto com sucesso para ${eqName}!`, 'success', 'check-circle');
+          
+          // Adiciona ao dashboard interno
+          this.allTickets.unshift({
+            id: Date.now(),
+            protocol: 'CH-' + Math.floor(1000 + Math.random() * 9000),
+            client: 'Hospital Santa Clara',
+            equipment: eqName,
+            healthScore: eq ? eq.healthScore : 70,
+            status: 'warning',
+            statusText: 'Novo Solicitação',
+            tech: 'Pendente'
+          });
+
+          this.newRequest.description = '';
+        },
+
+        // Fluxo de Orçamento / Pagamento
+        approveAndPayBudget() {
+          if (!this.selectedBudget) return;
+
+          this.isProcessingPayment = true;
+
+          setTimeout(() => {
+            this.isProcessingPayment = false;
+            this.selectedBudget.status = 'approved';
+
+            // Adiciona na fila de agendamento
+            this.scheduleQueue.push({
+              id: Date.now(),
+              client: this.selectedBudget.clientName,
+              location: 'Unidade Centro',
+              equipment: this.selectedBudget.equipmentName,
+              total: this.selectedBudget.total,
+              selectedTech: '',
+              selectedDate: ''
+            });
+
+            this.addToast(`Pagamento Mercado Pago aprovado! Movido para Agendamento.`, 'success', 'check-circle');
+            this.reinitIcons();
+          }, 1500);
+        },
+
+        rejectBudget() {
+          if (!this.selectedBudget) return;
+          this.addToast(`Orçamento #${this.selectedBudget.code} foi marcado como recusado.`, 'warning');
+        },
+
+        // Agendamento Interno
+        confirmSchedule(item) {
+          if (!item.selectedTech || !item.selectedDate) {
+            this.addToast('Por favor, selecione um técnico e uma data!', 'error', 'alert-circle');
+            return;
+          }
+
+          // Move para a semana
+          this.weekSchedule[2].events.push({
+            id: Date.now(),
+            client: item.client,
+            tech: item.selectedTech,
+            time: '13:30 - 16:30'
+          });
+
+          // Remove da fila
+          this.scheduleQueue = this.scheduleQueue.filter(i => i.id !== item.id);
+          this.addToast(`Visável técnica agendada com ${item.selectedTech}!`, 'success', 'calendar-check');
+          this.reinitIcons();
+        },
+
+        // Chat IA WhatsApp Simulation
+        sendQuickMsg(text) {
+          this.userInputMsg = text;
+          this.sendUserMessage();
+        },
+
+        sendUserMessage() {
+          if (!this.userInputMsg.trim()) return;
+
+          const userText = this.userInputMsg;
+          const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+          this.chatMessages.push({ sender: 'user', text: userText, time });
+          this.userInputMsg = '';
+
+          // Scroll para baixo
+          this.scrollToBottomChat();
+
+          // Simula resposta IA
+          this.isIaTyping = true;
+
+          setTimeout(() => {
+            this.isIaTyping = false;
+            let iaResponse = '';
+            
+            if (userText.toLowerCase().includes('urgência') || userText.toLowerCase().includes('vazando')) {
+              iaResponse = 'Compreendido! Identifiquei uma **Urgência Operacional** no Hospital Santa Clara. 🚨<br><br>Cadastrei a ocorrência no sistema com prioridade alta e estou gerando uma minuta de orçamento prévio para liberação imediata da equipe.';
+              this.lastExtractedJson = {
+                cliente_identificado: "Hospital Santa Clara",
+                cnpj: "14.582.910/0001-44",
+                equipamento: "Ar Condicionado VRF",
+                problema: "Vazamento de água e falta de refrigeração",
+                urgencia: "CRITICA",
+                orcamento_gerado: true,
+                valor_estimado: 850.00,
+                status_db: "Inserido em public.tickets"
+              };
+            } else {
+              iaResponse = 'Perfeito! Extraí os dados do seu pedido: Manutenção preventiva para equipamentos no Centro de BH.<br><br>Já criei a minuta do **Orçamento #ORC-2024-901** no sistema e enviei o link para sua aprovação direta no portal!';
+              this.lastExtractedJson = {
+                cliente_identificado: "Cliente Novo / Centro BH",
+                equipamento: "Split High Wall (3 Unidades)",
+                servico: "Manutenção Preventiva Semestral",
+                urgencia: "Normal",
+                orcamento_gerado: true,
+                valor_estimado: 990.00,
+                status_db: "Inserido em public.budgets"
+              };
+
+              // Adiciona orçamento simulado na lista
+              this.budgets.push({
+                id: Date.now(),
+                code: 'ORC-2024-901',
+                clientName: 'Cliente WhatsApp Centro',
+                equipmentName: '3x Split High Wall 18K',
+                status: 'pending',
+                createdAt: new Date().toLocaleDateString('pt-BR'),
+                diagnostics: 'Preventiva com higienização química completa e aplicação de bactericida.',
+                total: 990.00,
+                items: [
+                  { description: 'Higienização Completa com Bactericida', qty: 3, unitPrice: 230.00 },
+                  { description: 'Revisão Elétrica e Medição de Gás', qty: 3, unitPrice: 100.00 }
+                ]
+              });
+            }
+
+            this.chatMessages.push({ sender: 'ia', text: iaResponse, time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) });
+            this.scrollToBottomChat();
+            this.reinitIcons();
+          }, 1800);
+        },
+
+        resetChat() {
+          this.chatMessages = [
+            { sender: 'ia', text: 'Olá! Sou a <strong>IA de Atendimento ClimaFlux</strong>. ❄️<br>Como posso ajudar com a climatização da sua empresa hoje?', time: '17:20' }
+          ];
+          this.lastExtractedJson = {
+            cliente_identificado: "Pendente",
+            equipamento: "Não especificado",
+            localizacao: "Desconhecida",
+            urgencia: "Media",
+            orcamento_gerado: false
+          };
+          this.addToast('Chat reiniciado.', 'info');
+        },
+
+        scrollToBottomChat() {
+          setTimeout(() => {
+            const container = document.getElementById('chatContainer');
+            if (container) container.scrollTop = container.scrollHeight;
+          }, 100);
+        },
+
+        // Gestão de Toasts
+        addToast(message, type = 'info', icon = 'info') {
+          const id = Date.now();
+          this.toasts.push({ id, message, type, icon });
+          setTimeout(() => {
+            this.removeToast(id);
+          }, 4000);
+        },
+
+        removeToast(id) {
+          this.toasts = this.toasts.filter(t => t.id !== id);
+        }
+      }
+    }
+  </script>
+</body>
+</html>
